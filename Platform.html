@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BulariX | Intelligence OS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #030304;
+            --glass: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --accent: #60a5fa;
+            --accent-glow: rgba(96, 165, 250, 0.3);
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; cursor: crosshair; }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(96, 165, 250, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.05) 0%, transparent 40%);
+        }
+
+        /* Ambient Background Grid */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: linear-gradient(var(--glass-border) 1px, transparent 1px), linear-gradient(90deg, var(--glass-border) 1px, transparent 1px);
+            background-size: 60px 60px;
+            mask-image: radial-gradient(ellipse at center, black, transparent 80%);
+            z-index: -1;
+            opacity: 0.2;
+        }
+
+        /* Sophisticated Nav */
+        nav {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 1200px;
+            padding: 15px 30px;
+            background: var(--glass);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 100px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .nav-logo { font-weight: 800; letter-spacing: -1px; font-size: 1.2rem; }
+        .nav-links { display: flex; gap: 30px; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+        .nav-links span { color: var(--text-dim); transition: 0.3s; }
+        .nav-links span:hover { color: var(--accent); }
+
+        /* Immersive Hero */
+        .hero {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .hero h1 {
+            font-size: clamp(3rem, 8vw, 6rem);
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 20px;
+            background: linear-gradient(to bottom, #fff 30%, var(--text-dim));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            color: var(--text-dim);
+            max-width: 600px;
+            margin-bottom: 40px;
+        }
+
+        /* Ticker - Minimalist */
+        .ticker {
+            padding: 20px 0;
+            border-top: 1px solid var(--glass-border);
+            border-bottom: 1px solid var(--glass-border);
+            overflow: hidden;
+            background: rgba(0,0,0,0.3);
+        }
+
+        .ticker-wrap { display: flex; animation: slide 40s linear infinite; width: max-content; }
+        .ticker-item { padding: 0 40px; font-family: 'JetBrains Mono'; font-size: 0.75rem; color: var(--accent); white-space: nowrap; }
+
+        @keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+        /* The Grid */
+        .platform-grid {
+            max-width: 1200px;
+            margin: 100px auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            padding: 50px;
+            border-radius: 24px;
+            position: relative;
+            overflow: hidden;
+            transition: 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+        }
+
+        .card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--accent);
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4), 0 0 20px var(--accent-glow);
+        }
+
+        .card::after {
+            content: "";
+            position: absolute;
+            top: -50%; left: -50%; width: 200%; height: 200%;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            opacity: 0; transition: 0.5s;
+        }
+
+        .card:hover::after { opacity: 0.2; }
+
+        .card-tag { font-family: 'JetBrains Mono'; font-size: 0.7rem; color: var(--accent); margin-bottom: 20px; display: block; }
+        .card h3 { font-size: 2rem; margin-bottom: 15px; font-weight: 700; }
+        .card p { color: var(--text-dim); margin-bottom: 30px; font-size: 0.95rem; line-height: 1.7; }
+
+        .launch-btn {
+            padding: 12px 30px;
+            background: var(--text);
+            color: var(--bg);
+            border: none;
+            border-radius: 50px;
+            font-weight: 800;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .launch-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 20px var(--text);
+        }
+
+        /* Notify Section - Integrated */
+        .newsletter {
+            max-width: 800px;
+            margin: 150px auto;
+            text-align: center;
+            padding: 60px;
+            border-radius: 40px;
+            background: linear-gradient(145deg, rgba(255,255,255,0.02), transparent);
+            border: 1px solid var(--glass-border);
+        }
+
+        .input-group {
+            margin-top: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        input {
+            background: #000;
+            border: 1px solid var(--glass-border);
+            padding: 15px 25px;
+            border-radius: 50px;
+            color: white;
+            width: 300px;
+            outline: none;
+        }
+
+        input:focus { border-color: var(--accent); }
+
+        /* Global Footer Elements */
+        footer {
+            padding: 100px 50px;
+            border-top: 1px solid var(--glass-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .address-box { font-family: 'JetBrains Mono'; line-height: 2; }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <div class="nav-logo">BULARIX.CORE</div>
+        <div class="nav-links">
+            <span>Engines</span>
+            <span>Documentation</span>
+            <span>Research</span>
+            <span>Terminal</span>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <p style="font-family: 'JetBrains Mono'; font-size: 0.7rem; letter-spacing: 4px; color: var(--accent);">INITIALIZING ECOSYSTEM...</p>
+        <h1>Intelligence<br>Redefined.</h1>
+        <p>The central hub for advanced panel analytics, synthetic data generation, and economic forecasting engines.</p>
+        <a href="#explore" class="launch-btn">Enter Workspace</a>
+    </section>
+
+    <div class="ticker">
+        <div class="ticker-wrap">
+            <div class="ticker-item">● TRUSTED BY 739+ RESEARCHERS GLOBALLY</div>
+            <div class="ticker-item">● DATASETS SYNTHESIZED: 1.2M+</div>
+            <div class="ticker-item">● ACADEMIC NODES CONNECTED: 18</div>
+            <div class="ticker-item">● SYSTEM UPTIME: 99.9%</div>
+            <div class="ticker-item">● TRUSTED BY 739+ RESEARCHERS GLOBALLY</div>
+            <div class="ticker-item">● DATASETS SYNTHESIZED: 1.2M+</div>
+        </div>
+    </div>
+
+    <div class="platform-grid" id="explore">
+        <div class="card">
+            <span class="card-tag">BULARIX // MODULE_01</span>
+            <h3>PanelStatX</h3>
+            <p>High-precision panel data environment. Execute complex econometric regressions with publication-standard diagnostics.</p>
+            <a href="#" class="launch-btn">Launch Engine</a>
+        </div>
+
+        <div class="card">
+            <span class="card-tag">BULARIX // MODULE_02</span>
+            <h3>DataSynthX</h3>
+            <p>Generative intelligence for data synthesis. Mirror real-world distributions while maintaining absolute data privacy.</p>
+            <a href="#" class="launch-btn">Launch Engine</a>
+        </div>
+
+        <div class="card" style="background: rgba(0,0,0,0.5);">
+            <span class="card-tag" style="color: #f59e0b;">DEVELOPMENT_MODE</span>
+            <h3>PredictivX</h3>
+            <p>Upcoming time-series forecasting engine. Advanced ML architectures tailored for economic and financial volatility.</p>
+            <a href="#" class="launch-btn" style="background: var(--glass); color: white; border: 1px solid var(--glass-border);">Notify Me</a>
+        </div>
+    </div>
+
+    <div class="newsletter">
+        <h2 style="font-size: 2.5rem; font-weight: 800;">Get Availability Alerts</h2>
+        <p>Subscribe to the BulariX Dev Log for early access to new analytical modules.</p>
+        <div class="input-group">
+            <input type="email" placeholder="researcher@university.edu">
+            <button class="launch-btn">Subscribe</button>
+        </div>
+    </div>
+
+    <footer>
+        <div class="address-box">
+            BULARIX INTEL SUITE<br>
+            STATION_ID: ALPHA_01<br>
+            GLOBAL REMOTE // HQ: [YOUR CITY]
+        </div>
+        <div>
+            &copy; 2026 BULARIX OPERATING SYSTEM. ALL RIGHTS RESERVED.
+        </div>
+    </footer>
+
+</body>
+</html>
