@@ -17,6 +17,28 @@ from plotly.subplots import make_subplots
 import streamlit as st
 from factor_analyzer import FactorAnalyzer, calculate_kmo, calculate_bartlett_sphericity
 
+# ── sklearn ≥ 1.6 compatibility patch ────────────────────────────────────────
+# factor_analyzer 0.5.x uses the deprecated `force_all_finite` kwarg which was
+# renamed to `ensure_all_finite` in scikit-learn 1.6. Patch both submodules.
+try:
+    import factor_analyzer.factor_analyzer as _fa_mod
+    import factor_analyzer.confirmatory_factor_analyzer as _cfa_mod
+    from sklearn.utils.validation import check_array as _orig_check_array
+
+    def _compat_check_array(*args, **kwargs):
+        if "force_all_finite" in kwargs:
+            val = kwargs.pop("force_all_finite")
+            # "allow-nan" / False  → ensure_all_finite=False
+            # True                 → ensure_all_finite=True
+            kwargs["ensure_all_finite"] = (val is True)
+        return _orig_check_array(*args, **kwargs)
+
+    _fa_mod.check_array  = _compat_check_array
+    _cfa_mod.check_array = _compat_check_array
+except Exception:
+    pass  # older sklearn — patch not needed
+# ─────────────────────────────────────────────────────────────────────────────
+
 warnings.filterwarnings("ignore")
 
 # ══════════════════════════════════════════════════════════════════
@@ -110,8 +132,8 @@ def check_efa_suitability(df: pd.DataFrame) -> dict:
 
 
 def determine_n_factors(df: pd.DataFrame) -> dict:
-    max_factors = min(len(df.columns), len(df) - 1, len(df.columns) - 1)
-    max_factors = max(1, max_factors)
+    # Cap: must be < n_variables AND < n_samples (FactorAnalyzer constraint)
+    max_factors = max(1, min(len(df.columns) - 1, len(df) - 1))
     fa = FactorAnalyzer(n_factors=max_factors, rotation=None)
     fa.fit(df)
     ev, _ = fa.get_eigenvalues()
@@ -220,9 +242,9 @@ def assess_cfa_fit(fit_indices: dict, thresholds: dict) -> dict:
             passed = val >= thresh if direction == "≥" else val <= thresh
             assessment[idx] = dict(value=val, threshold=thresh, pass_=passed, direction=direction)
     n_pass = sum(1 for v in assessment.values() if v["pass_"])
-    n_total = len(assessment)
     return dict(indices=assessment, n_pass=n_pass,
-                n_total=n_total, overall_pass=(n_total > 0 and n_pass == n_total))
+                n_total=len(assessment),
+                overall_pass=(len(assessment) > 0 and n_pass == len(assessment)))
 
 
 def get_modification_suggestions(fit_assessment: dict) -> list:
@@ -463,17 +485,17 @@ hr{{border:none;border-top:1px solid var(--border);margin:28px 0;}}
     kmo_b = "bp" if s["kmo_pass"] else "bf"
     bar_b = "bp" if s["bartlett_pass"] else "bf"
     ov_b  = "bp" if s["overall_pass"]  else "bf"
-    ov_text  = "PASS" if s["overall_pass"] else "FAIL"
-    kmo_text = "PASS" if s["kmo_pass"] else "FAIL"
-    bar_text = "PASS" if s["bartlett_pass"] else "FAIL"
+    _ov_txt  = "PASS" if s["overall_pass"] else "FAIL"
+    _kmo_txt = "PASS" if s["kmo_pass"]     else "FAIL"
+    _bar_txt = "PASS" if s["bartlett_pass"] else "FAIL"
     html += f"""<h2>2. EFA Suitability</h2>
 <div class="card">
-  <div style="margin-bottom:12px">Overall: <span class="badge {ov_b}">{ov_text}</span></div>
+  <div style="margin-bottom:12px">Overall: <span class="badge {ov_b}">{_ov_txt}</span></div>
   <table><thead><tr><th>Test</th><th>Value</th><th>Threshold</th><th>Result</th></tr></thead><tbody>
   <tr><td>KMO</td><td>{s['kmo_model']} — <em>{s['kmo_label']}</em></td><td>≥ 0.60</td>
-    <td><span class="badge {kmo_b}">{kmo_text}</span></td></tr>
+    <td><span class="badge {kmo_b}">{_kmo_txt}</span></td></tr>
   <tr><td>Bartlett's Sphericity</td><td>χ² = {s['bartlett_chi2']}, p = {s['bartlett_p']}</td><td>p &lt; 0.05</td>
-    <td><span class="badge {bar_b}">{bar_text}</span></td></tr>
+    <td><span class="badge {bar_b}">{_bar_txt}</span></td></tr>
   </tbody></table>
 </div>
 """
@@ -525,11 +547,11 @@ hr{{border:none;border-top:1px solid var(--border);margin:28px 0;}}
             ("<td><span class='badge " + ("bp" if d["pass_"] else "bf") + "'>" + ("PASS" if d["pass_"] else "FAIL") + "</span></td></tr>")
             for idx, d in fa["indices"].items()
         )
-        cfa_fit_text = "ADEQUATE" if fa["overall_pass"] else "INADEQUATE"
+        _cfa_fit_txt = "ADEQUATE" if fa["overall_pass"] else "INADEQUATE"
         html += f"""<h2>4. Confirmatory Factor Analysis</h2>
 <div class="card">
   <div style="margin-bottom:12px">
-    Model Fit: <span class="badge {ov_b2}">{cfa_fit_text}</span>
+    Model Fit: <span class="badge {ov_b2}">{_cfa_fit_txt}</span>
     &nbsp;<span style="color:var(--muted);font-size:.85rem">{fa['n_pass']}/{fa['n_total']} indices passed</span>
   </div>
   <table><thead><tr><th>Index</th><th>Value</th><th>Threshold</th><th>Result</th></tr></thead>
@@ -582,7 +604,7 @@ _DEFAULTS = dict(
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _v
-# dropped_vars separately — never share a list object across reruns
+# dropped_vars separately — mutable default must never be shared across reruns
 if "dropped_vars" not in st.session_state:
     st.session_state["dropped_vars"] = []
 S = st.session_state
@@ -650,13 +672,12 @@ with col_up2:
     st.markdown('<div class="info-box">💡 <b>Requirements</b><br>• Numeric variables only<br>• Minimum 5 variables<br>• Recommended ≥ 100 rows<br>• Missing values auto-dropped</div>', unsafe_allow_html=True)
 
 if uploaded:
-    # Guard: only re-parse when a NEW file is uploaded (name+size as identity key)
     _file_key = f"{uploaded.name}_{uploaded.size}"
     if S.get("_last_file_key") != _file_key:
         try:
             fname = uploaded.name.lower()
             if fname.endswith(".csv"):
-                # Fallback encoding for Windows/survey exports (latin-1 for SPSS/Excel-exported CSVs)
+                # Fallback encoding for Windows/SPSS survey exports
                 try:
                     df_raw = pd.read_csv(uploaded, encoding="utf-8")
                 except UnicodeDecodeError:
@@ -675,15 +696,14 @@ if uploaded:
             if len(df_numeric) < 30:
                 st.warning("⚠️ Fewer than 30 observations — factor analysis results may be unreliable.")
 
-            # Commit to session state — reset all downstream
-            S.df_original   = df_numeric.copy()
-            S.df_working    = df_numeric.copy()
-            S.dropped_vars  = []
-            S.suitability   = None
-            S.efa_result    = None
-            S.cfa_result    = None
+            S.df_original    = df_numeric.copy()
+            S.df_working     = df_numeric.copy()
+            S.dropped_vars   = []
+            S.suitability    = None
+            S.efa_result     = None
+            S.cfa_result     = None
             S.fit_assessment = None
-            S.efa_done      = False
+            S.efa_done       = False
             S.synthetic_factor = None
             S.synthetic_corr   = None
             S.syn_validation   = None
