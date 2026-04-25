@@ -81,23 +81,28 @@ from factor_analyzer import FactorAnalyzer
 def _prepare_efa_df(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    # 1. force numeric (important improvement)
+    # 1. FORCE CLEAN NUMERIC CONVERSION (CRITICAL FIX)
     for col in df.columns:
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.replace(",", ".", regex=False)  # fixes EU decimals
+        )
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     # 2. remove inf
     df = df.replace([np.inf, -np.inf], np.nan)
 
-    # 3. drop columns with too many missing values
-    df = df.loc[:, df.isna().mean() < 0.5]
+    # 3. drop columns with too much missingness
+    df = df.loc[:, df.isna().mean() < 0.4]
 
-    # 4. drop remaining NaNs
+    # 4. drop rows with NaNs
     df = df.dropna()
 
-    # 5. remove constant / near-constant columns
+    # 5. remove constant columns
     df = df.loc[:, df.nunique() > 1]
 
-    # 6. remove near-zero variance columns (IMPORTANT FIX)
+    # 6. remove near-zero variance columns
     df = df.loc[:, df.std() > 1e-8]
 
     return df
@@ -106,29 +111,29 @@ def _prepare_efa_df(df: pd.DataFrame) -> pd.DataFrame:
 def determine_n_factors(df: pd.DataFrame) -> dict:
     df_clean = _prepare_efa_df(df)
 
-    # HARD SAFETY CHECKS
+    # 🔴 HARD GUARDS (THIS PREVENTS YOUR CRASH)
     if df_clean.shape[1] < 3:
-        raise ValueError("EFA requires at least 3 valid numeric variables.")
+        raise ValueError(f"Need ≥3 variables, got {df_clean.shape[1]}")
 
-    if df_clean.shape[0] < df_clean.shape[1] * 5:
-        raise ValueError("Insufficient sample size for stable EFA.")
+    if df_clean.shape[0] < 10:
+        raise ValueError(f"Need ≥10 observations, got {df_clean.shape[0]}")
 
-    # 🔥 CORRELATION SANITY CHECK (CRITICAL)
+    # 🔥 FINAL TYPE SAFETY CHECK (CRITICAL)
+    if df_clean.dtypes.any() == "object":
+        raise ValueError("Non-numeric columns still present after cleaning")
+
+    X = df_clean.to_numpy(dtype=np.float64)
+
+    if np.isnan(X).any():
+        raise ValueError("NaN values still exist after cleaning")
+
+    if np.isinf(X).any():
+        raise ValueError("Inf values still exist after cleaning")
+
+    # 🔥 MULTICOLLINEARITY CHECK
     corr = df_clean.corr().abs()
-
-    if corr.mean().mean() < 0.1:
-        raise ValueError(
-            "Variables are too weakly correlated for EFA."
-        )
-
-    if (corr > 0.999).sum().sum() > len(corr):
-        raise ValueError(
-            "Severe multicollinearity detected (duplicate variables)."
-        )
-
-    # FINAL SAFETY: ensure no NaN
-    if df_clean.isna().sum().sum() > 0:
-        raise ValueError("NaNs still present after cleaning.")
+    if (corr.values > 0.999).sum() > len(corr):
+        raise ValueError("Severe multicollinearity detected")
 
     # RUN EFA
     fa = FactorAnalyzer(
@@ -136,7 +141,13 @@ def determine_n_factors(df: pd.DataFrame) -> dict:
         rotation=None
     )
 
-    fa.fit(df_clean)
+    try:
+        fa.fit(df_clean)
+    except Exception as e:
+        raise ValueError(
+            f"EFA failed even after cleaning. Shape={df_clean.shape}. "
+            f"Reason: {str(e)}"
+        )
 
     ev, _ = fa.get_eigenvalues()
 
@@ -145,8 +156,6 @@ def determine_n_factors(df: pd.DataFrame) -> dict:
         "suggested_n": max(1, int(np.sum(ev > 1))),
         "clean_shape": df_clean.shape
     }
-
-
 # ─────────────────────────────────────────
 # 3. Run EFA
 # ─────────────────────────────────────────
