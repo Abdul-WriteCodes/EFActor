@@ -40,7 +40,7 @@ warnings.filterwarnings("ignore")
 # ══════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="EFActor — Psychometric Analysis Platform",
-    page_icon="◈",
+    page_icon="🔬",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -271,7 +271,7 @@ def render_landing():
       <div style="display:inline-flex;align-items:center;gap:14px;margin-bottom:32px;">
         <div style="width:44px;height:44px;background:linear-gradient(135deg,#6c8dfa,#a78bfa);
                     border-radius:10px;display:flex;align-items:center;justify-content:center;
-                    font-size:22px;flex-shrink:0;">◈</div>
+                    font-size:22px;flex-shrink:0;">🔬</div>
         <span style="font-family:Inter,sans-serif;font-size:26px;font-weight:800;
                      background:linear-gradient(90deg,#6c8dfa,#a78bfa);
                      -webkit-background-clip:text;-webkit-text-fill-color:transparent;
