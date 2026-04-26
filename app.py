@@ -493,12 +493,12 @@ def render_landing():
     # Footer
     st.markdown("""
     <div style="text-align:center;margin-top:40px;padding-bottom:16px;">
-      <a href="https://your-purchase-link" target="_blank"
+      <a href="https://x.com/Bayantx360" target="_blank"
          style="font-family:Inter,sans-serif;font-size:12px;font-weight:600;color:white;
                 background:linear-gradient(135deg,#151a2e,#1e2745);
                 border:1px solid #1e2540;padding:10px 18px;border-radius:8px;
                 margin:0 6px;display:inline-block;text-decoration:none;">👤 Get Access Key</a>
-      <a href="mailto:your@email.com"
+      <a href="mailto:Bayantx360@gmail.com"
          style="font-family:Inter,sans-serif;font-size:12px;font-weight:600;color:white;
                 background:linear-gradient(135deg,#151a2e,#1e2745);
                 border:1px solid #1e2540;padding:10px 18px;border-radius:8px;
@@ -506,7 +506,7 @@ def render_landing():
     </div>
     <div style="text-align:center;font-family:Inter,sans-serif;font-size:10px;
                 color:#1e2540;margin-top:40px;letter-spacing:1px;padding-bottom:40px;">
-      © 2025 EFActor · Psychometric Analysis Platform
+      © 2025 EFActor · Psychometric Analysis Platform • Bayantx360
     </div>
     """, unsafe_allow_html=True)
 
