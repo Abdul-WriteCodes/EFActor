@@ -1,10 +1,7 @@
 """
-╔══════════════════════════════════════════════════════════════════╗
-║                  EFActor  —  Single-File Streamlit App           ║
-║         EFA / CFA Analysis Platform  |  efactor.app              ║
-║  Landing → Auth → Upload → EFA → CFA → Diagnose → Export        ║
-╚══════════════════════════════════════════════════════════════════╝
-"""
+Exploratory Factor Analysis and Comfirmatory Factor Analysis
+
+""""
 
 import io
 import zipfile
