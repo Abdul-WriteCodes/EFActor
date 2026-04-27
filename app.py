@@ -1720,9 +1720,9 @@ else:
 
             t_before, t_after = st.tabs(["Communalities: Before", "Communalities: After"])
             with t_before:
-                st.plotly_chart(plot_communalities(efa_b["communalities"], communality_threshold), use_container_width=True)
+                st.plotly_chart(plot_communalities(efa_b["communalities"], communality_threshold), use_container_width=True, key="comm_before_fix")
             with t_after:
-                st.plotly_chart(plot_communalities(efa_a["communalities"], communality_threshold), use_container_width=True)
+                st.plotly_chart(plot_communalities(efa_a["communalities"], communality_threshold), use_container_width=True, key="comm_after_fix")
 
         # ── Fixed dataset preview & download ───────────────────────
         if S.df_autofix is not None:
