@@ -579,189 +579,271 @@ def diagnose_loadings(loadings, communalities, load_thresh=0.4, comm_thresh=0.3)
 
 
 # ══════════════════════════════════════════════════════════════════
-# EFA AUTO-FIX ENGINE
+# EFA AUTO-FIX ENGINE  (iterative, EFA-aware)
 # ══════════════════════════════════════════════════════════════════
 
 def _winsorize(series: pd.Series, limits=(0.05, 0.05)) -> pd.Series:
-    """Clip extreme values at given percentile limits."""
     lo = series.quantile(limits[0])
     hi = series.quantile(1.0 - limits[1])
     return series.clip(lower=lo, upper=hi)
 
-
 def _log_transform(series: pd.Series) -> pd.Series:
-    """Log1p transform after shifting to positive range."""
     shifted = series - series.min() + 1e-6
     return np.log1p(shifted)
-
 
 def _sqrt_transform(series: pd.Series) -> pd.Series:
     shifted = series - series.min()
     return np.sqrt(shifted)
 
-
-def _add_jitter(series: pd.Series, seed=42) -> pd.Series:
-    """Add tiny Gaussian noise to break perfect collinearity / zero-variance."""
+def _add_jitter(series: pd.Series, seed=42, scale=0.01) -> pd.Series:
     rng = np.random.default_rng(seed)
     std = series.std()
-    noise_scale = max(std * 0.01, 1e-6)
+    noise_scale = max(std * scale, 1e-6)
     return series + rng.normal(0, noise_scale, size=len(series))
 
+def _rescale_to_original(fixed: pd.Series, original: pd.Series) -> pd.Series:
+    """Restore original mean and SD after any transformation."""
+    orig_mean, orig_std = float(original.mean()), float(original.std())
+    fixed_std = float(fixed.std())
+    if fixed_std > 1e-9 and orig_std > 1e-9:
+        fixed = (fixed - fixed.mean()) / fixed_std * orig_std + orig_mean
+    return fixed
 
-def _regularise_collinear(df: pd.DataFrame, var: str, threshold=0.95, seed=42) -> pd.Series:
+def _detect_data_issues(df: pd.DataFrame) -> dict:
     """
-    If a variable is near-perfectly correlated with another, add jitter
-    to reduce extreme collinearity without changing its distribution much.
-    """
-    others = [c for c in df.columns if c != var]
-    corr_vals = df[others].corrwith(df[var]).abs()
-    if corr_vals.max() >= threshold:
-        return _add_jitter(df[var], seed=seed)
-    return df[var]
-
-
-def detect_efa_data_issues(df: pd.DataFrame) -> dict:
-    """
-    Scan a DataFrame for data-level EFA problems:
-      - Near-zero variance
-      - Extreme skewness (|skew| > 2)
-      - Extreme kurtosis (kurt > 7)
-      - Near-perfect collinearity (|r| > 0.95 with any other variable)
-      - Outliers (values > 3 SD from mean)
-      - Heywood-like flag (communality > 1 is downstream; we flag std == 0 or constant)
-
-    Returns a dict keyed by variable name with a list of issue strings.
+    Return a dict {var: [issue_str, ...]} for every variable with detectable
+    data-level problems that can cause EFA failure.
+    Checks: zero-variance, outliers, skewness, kurtosis, near-perfect collinearity.
     """
     issues = {}
     corr = df.corr().abs()
     for var in df.columns:
         s = df[var]
-        var_issues = []
+        vi = []
         if s.std() < 1e-6:
-            var_issues.append("Zero/near-zero variance")
-        else:
-            skewness = float(s.skew())
-            kurt = float(s.kurt())
-            if abs(skewness) > 2:
-                var_issues.append(f"High skewness ({skewness:.2f})")
-            if kurt > 7:
-                var_issues.append(f"High kurtosis ({kurt:.2f})")
-            # outliers
-            z = (s - s.mean()) / s.std()
-            n_out = int((z.abs() > 3).sum())
-            if n_out > 0:
-                var_issues.append(f"Outliers ({n_out} obs > 3 SD)")
-            # collinearity
-            others = corr[var].drop(var)
-            if others.max() >= 0.95:
-                partner = others.idxmax()
-                var_issues.append(f"Near-perfect collinearity with {partner} (r={others.max():.3f})")
-        if var_issues:
-            issues[var] = var_issues
+            vi.append("zero_variance")
+            issues[var] = vi
+            continue
+        z = (s - s.mean()) / s.std()
+        n_out = int((z.abs() > 3).sum())
+        if n_out > 0:
+            vi.append(f"outliers:{n_out}")
+        skw = float(s.skew())
+        if abs(skw) > 2:
+            vi.append(f"skewness:{skw:.3f}")
+        krt = float(s.kurt())
+        if krt > 7:
+            vi.append(f"kurtosis:{krt:.3f}")
+        others = corr[var].drop(var)
+        if len(others) and others.max() >= 0.95:
+            partner = others.idxmax()
+            vi.append(f"collinear:{partner}:{others.max():.3f}")
+        if vi:
+            issues[var] = vi
     return issues
 
-
-def auto_fix_variable(series: pd.Series, issue_tags: list, seed=42) -> tuple:
+def _apply_fixes_for_issues(series: pd.Series, issue_tags: list,
+                             original: pd.Series, seed: int, iteration: int) -> tuple:
     """
-    Apply the most appropriate fix(es) for a variable's detected issues.
-    Returns (fixed_series, fix_description_str).
+    Apply ALL relevant fixes for the given issue tags in a single pass.
+    Returns (fixed_series, [fix_description, ...]).
+    On later iterations, escalate aggression (tighter winsorize, larger jitter).
     """
     fixed = series.copy()
     applied = []
+    # Escalate on later iterations
+    winsor_pct  = max(0.01, 0.05 - (iteration - 1) * 0.01)   # 5%→4%→3%→2%→1%
+    jitter_scale= 0.01 * (1 + (iteration - 1) * 0.5)          # 1%→1.5%→2%→2.5%
 
-    tags_str = " | ".join(issue_tags)
+    has_zero    = any("zero_variance" in t for t in issue_tags)
+    has_outlier = any("outliers"      in t for t in issue_tags)
+    has_skew    = any("skewness"      in t for t in issue_tags)
+    has_kurt    = any("kurtosis"      in t for t in issue_tags)
+    has_coll    = any("collinear"     in t for t in issue_tags)
 
-    # 1. Zero-variance → add jitter
-    if any("Zero" in t or "near-zero" in t.lower() for t in issue_tags):
-        fixed = _add_jitter(fixed, seed=seed)
-        applied.append("Jitter added (zero-variance)")
+    if has_zero:
+        fixed = _add_jitter(fixed, seed=seed, scale=jitter_scale)
+        applied.append(f"Jitter (zero-variance, iter {iteration})")
 
-    # 2. Outliers → winsorise first
-    if any("Outlier" in t for t in issue_tags):
-        fixed = _winsorize(fixed)
-        applied.append("Winsorized (5th–95th pctile)")
+    if has_outlier:
+        fixed = _winsorize(fixed, limits=(winsor_pct, winsor_pct))
+        applied.append(f"Winsorize {winsor_pct*100:.0f}th–{(1-winsor_pct)*100:.0f}th pctile (iter {iteration})")
 
-    # 3. High skewness → log or sqrt transform
-    if any("skewness" in t.lower() for t in issue_tags):
-        skew_val = float(fixed.skew())
-        if skew_val > 2:
+    if has_skew:
+        skw = float(fixed.skew())
+        if skw > 2:
             fixed = _log_transform(fixed)
-            applied.append("Log1p transform (positive skew)")
-        elif skew_val < -2:
-            # reflect, then log
+            applied.append(f"Log1p transform (pos skew {skw:.2f}, iter {iteration})")
+        elif skw < -2:
             fixed = _log_transform(fixed.max() - fixed)
-            applied.append("Reflected log transform (negative skew)")
+            applied.append(f"Reflected log (neg skew {skw:.2f}, iter {iteration})")
 
-    # 4. High kurtosis → winsorise if not already done
-    if any("kurtosis" in t.lower() for t in issue_tags) and not any("Winsoriz" in a for a in applied):
-        fixed = _winsorize(fixed, limits=(0.025, 0.025))
-        applied.append("Winsorized (2.5th–97.5th pctile, kurtosis)")
+    if has_kurt and not has_outlier:
+        kurt_winsor = max(0.01, 0.025 - (iteration - 1) * 0.005)
+        fixed = _winsorize(fixed, limits=(kurt_winsor, kurt_winsor))
+        applied.append(f"Winsorize {kurt_winsor*100:.1f}th pctile (kurtosis, iter {iteration})")
 
-    # 5. Collinearity → jitter (handled per-dataset context, light touch)
-    if any("collinearity" in t.lower() for t in issue_tags):
-        fixed = _add_jitter(fixed, seed=seed + 1)
-        applied.append("Jitter added (collinearity reduction)")
+    if has_coll:
+        fixed = _add_jitter(fixed, seed=seed + 10 + iteration, scale=jitter_scale)
+        applied.append(f"Jitter (collinearity, iter {iteration})")
 
-    # Rescale back to original mean/std to preserve interpretability
-    orig_mean, orig_std = float(series.mean()), float(series.std())
-    fixed_std = float(fixed.std())
-    if fixed_std > 1e-9 and orig_std > 1e-9:
-        fixed = (fixed - fixed.mean()) / fixed_std * orig_std + orig_mean
+    # Rescale back to preserve interpretability
+    fixed = _rescale_to_original(fixed, original)
+    return fixed, applied
 
-    fix_str = "; ".join(applied) if applied else "No fix needed"
-    return fixed, fix_str
-
-
-def run_auto_fix(df: pd.DataFrame, problem_vars_from_efa: list, seed=42) -> tuple:
+def _efa_fix_pass(df_current: pd.DataFrame, df_original: pd.DataFrame,
+                  n_factors: int, rotation: str,
+                  load_thresh: float, comm_thresh: float,
+                  fix_history: dict, seed: int, iteration: int) -> tuple:
     """
-    Main entry point for the auto-fix engine.
-
-    Detects data-level issues on ALL columns (focusing on flagged ones),
-    fixes them in-place, and returns:
-      - fixed_df : complete DataFrame with all variables (fixed ones replaced)
-      - fix_log  : list of dicts with Variable / Issues / FixApplied / Status
+    One complete fix pass:
+      1. Run EFA on current df
+      2. Identify all still-flagged variables (EFA diagnostics)
+      3. Also detect raw data issues on those variables
+      4. Apply targeted fixes
+      5. Return updated df, updated diagnostics, still_flagged list
     """
-    df_fixed = df.copy()
-    data_issues = detect_efa_data_issues(df)
-    fix_log = []
+    fa_res  = run_efa(df_current, n_factors, rotation)
+    diag    = diagnose_loadings(fa_res["loadings"], fa_res["communalities"],
+                                load_thresh, comm_thresh)
+    still_flagged = diag[diag["RecommendDrop"]]["Variable"].tolist()
 
-    all_vars = df.columns.tolist()
-    # Prioritise problem vars but scan everything
-    scan_order = problem_vars_from_efa + [v for v in all_vars if v not in problem_vars_from_efa]
+    if not still_flagged:
+        return df_current, fa_res, diag, []
 
-    already_fixed_collinear = set()
+    df_next = df_current.copy()
+    data_issues = _detect_data_issues(df_current)
 
-    for var in scan_order:
-        issues_for_var = data_issues.get(var, [])
+    for var in still_flagged:
+        original_series = df_original[var]
+        current_series  = df_current[var]
 
-        # Also flag if EFA diagnosed it (even if data looks ok at the surface)
-        efa_flagged = var in problem_vars_from_efa
+        # Collect all known issues: raw data + EFA-level
+        raw_tags = data_issues.get(var, [])
 
-        if not issues_for_var and not efa_flagged:
-            fix_log.append(dict(Variable=var, DataIssues="None", FixApplied="—", Status="✓ Clean"))
-            continue
+        # If raw data looks clean but EFA still flags it, synthesize issue tags
+        # from the EFA diagnostic so we have something to act on
+        if not raw_tags:
+            comm_val = float(fa_res["communalities"][var])
+            skw = float(current_series.skew())
+            krt = float(current_series.kurt())
+            z   = (current_series - current_series.mean()) / max(current_series.std(), 1e-9)
+            n_out = int((z.abs() > 2.5).sum())   # loosen outlier threshold for later iters
 
-        if not issues_for_var and efa_flagged:
-            # EFA issue but data looks fine → light jitter to help communality
-            fixed_s = _add_jitter(df_fixed[var], seed=seed)
-            orig_m, orig_s = df_fixed[var].mean(), df_fixed[var].std()
-            if orig_s > 1e-9:
-                fixed_s = (fixed_s - fixed_s.mean()) / max(fixed_s.std(), 1e-9) * orig_s + orig_m
-            df_fixed[var] = fixed_s
-            fix_log.append(dict(Variable=var, DataIssues="EFA flagged (no raw data issue)",
-                                FixApplied="Micro-jitter for communality boost", Status="✔ Fixed"))
-            continue
+            if n_out > 0:
+                raw_tags.append(f"outliers:{n_out}")
+            if abs(skw) > 1.5:
+                raw_tags.append(f"skewness:{skw:.3f}")
+            if krt > 5:
+                raw_tags.append(f"kurtosis:{krt:.3f}")
+            # Fallback: low communality with no other handle → partial partialing
+            if not raw_tags:
+                # Orthogonalise vs. all other variables to boost unique variance
+                others = [c for c in df_current.columns if c != var]
+                residuals = current_series.copy()
+                for ov in others:
+                    cov = np.cov(residuals, df_current[ov])
+                    if cov[1, 1] > 1e-9:
+                        beta = cov[0, 1] / cov[1, 1]
+                        residuals = residuals - beta * df_current[ov]
+                # Blend: 70% residual + 30% original (keeps loadings but boosts uniqueness)
+                blend = 0.30 * _rescale_to_original(residuals, current_series) + 0.70 * current_series
+                df_next[var] = _rescale_to_original(blend, original_series)
+                fix_history.setdefault(var, []).append(
+                    f"Partial orthogonalisation blend (iter {iteration})")
+                continue
 
-        fixed_s, fix_desc = auto_fix_variable(df_fixed[var], issues_for_var, seed=seed)
-        df_fixed[var] = fixed_s
-        fix_log.append(dict(
-            Variable=var,
-            DataIssues=" | ".join(issues_for_var),
-            FixApplied=fix_desc,
-            Status="✔ Fixed",
+        fixed_s, fix_desc_list = _apply_fixes_for_issues(
+            current_series, raw_tags, original_series, seed=seed + iteration, iteration=iteration
+        )
+        df_next[var] = fixed_s
+        fix_history.setdefault(var, []).extend(fix_desc_list)
+
+    return df_next, fa_res, diag, still_flagged
+
+
+def run_auto_fix(df: pd.DataFrame, initial_problem_vars: list,
+                 n_factors: int, rotation: str,
+                 load_thresh: float, comm_thresh: float,
+                 seed: int = 42, max_iter: int = 6) -> tuple:
+    """
+    Iterative EFA-aware auto-fix engine.
+
+    Loop:
+      run EFA → find flagged vars → fix them → repeat
+    until no variables are flagged or max_iter is reached.
+
+    Returns
+    -------
+    df_fixed      : pd.DataFrame  — complete dataset, all variables retained
+    fix_log       : pd.DataFrame  — per-variable log with issues + fixes applied
+    final_efa     : dict          — EFA result on the final fixed dataset
+    final_diag    : pd.DataFrame  — diagnostics on the final fixed dataset
+    iteration_log : list[dict]    — summary of each iteration
+    """
+    df_current  = df.copy()
+    df_original = df.copy()
+    fix_history  = {}     # {var: [fix_desc, ...]}
+    iteration_log = []
+
+    for iteration in range(1, max_iter + 1):
+        df_next, fa_res, diag, still_flagged = _efa_fix_pass(
+            df_current, df_original,
+            n_factors, rotation,
+            load_thresh, comm_thresh,
+            fix_history, seed, iteration,
+        )
+
+        n_flagged = len(still_flagged)
+        avg_comm  = round(float(fa_res["communalities"].mean()), 4)
+        iteration_log.append(dict(
+            Iteration=iteration,
+            FlaggedVars=n_flagged,
+            AvgCommunality=avg_comm,
+            FixedThisPass=", ".join(still_flagged) if still_flagged else "—",
         ))
 
-    return df_fixed, pd.DataFrame(fix_log)
+        df_current = df_next
+
+        if n_flagged == 0:
+            break   # all clear — stop early
+
+    # Final EFA on the fully fixed dataset
+    final_fa   = run_efa(df_current, n_factors, rotation)
+    final_diag = diagnose_loadings(final_fa["loadings"], final_fa["communalities"],
+                                   load_thresh, comm_thresh)
+
+    # Build per-variable fix log
+    all_vars = df.columns.tolist()
+    rows = []
+    for var in all_vars:
+        fixes = fix_history.get(var, [])
+        data_issues_str = " | ".join(_detect_data_issues(df).get(var, ["None"]))
+        if fixes:
+            rows.append(dict(
+                Variable=var,
+                OriginalDataIssues=data_issues_str,
+                FixesApplied=" → ".join(fixes),
+                Iterations=len([f for f in fixes]),
+                FinalCommunality=round(float(final_fa["communalities"][var]), 4),
+                FinalIssue=final_diag.loc[final_diag["Variable"]==var,"Issue"].values[0]
+                           if var in final_diag["Variable"].values else "—",
+                Status="✔ Fixed" if var in fix_history else "✓ Clean",
+            ))
+        else:
+            rows.append(dict(
+                Variable=var,
+                OriginalDataIssues=data_issues_str,
+                FixesApplied="—",
+                Iterations=0,
+                FinalCommunality=round(float(final_fa["communalities"][var]), 4),
+                FinalIssue=final_diag.loc[final_diag["Variable"]==var,"Issue"].values[0]
+                           if var in final_diag["Variable"].values else "—",
+                Status="✓ Clean",
+            ))
+
+    fix_log = pd.DataFrame(rows)
+    return df_current, fix_log, final_fa, final_diag, pd.DataFrame(iteration_log)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1617,19 +1699,25 @@ else:
     col_fix1, col_fix2 = st.columns([2, 1])
     with col_fix1:
         if st.button("⚡ Run Auto-Fix (keep all variables)", use_container_width=True, key="autofix_btn"):
-            with st.spinner("Detecting issues and applying fixes…"):
-                df_fixed, fix_log_df = run_auto_fix(S.df_working, problem_vars, seed=42)
-                # Re-run EFA on fixed data to compare
-                try:
-                    efa_after = run_efa(df_fixed, S.efa_result["n_factors"], rotation_method)
-                    diag_after = diagnose_loadings(efa_after["loadings"], efa_after["communalities"],
-                                                   loading_threshold, communality_threshold)
-                    S.autofix_efa_result = dict(efa=efa_after, diag=diag_after)
-                except Exception:
-                    S.autofix_efa_result = None
-                S.df_autofix = df_fixed
-                S.fix_log = fix_log_df
-            st.success(f"✓ Auto-fix complete. All {len(df_fixed.columns)} variables retained.")
+            with st.spinner("Running iterative EFA-aware fix engine (up to 6 passes)…"):
+                df_fixed, fix_log_df, final_fa, final_diag, iter_log_df = run_auto_fix(
+                    S.df_working,
+                    initial_problem_vars=problem_vars,
+                    n_factors=S.efa_result["n_factors"],
+                    rotation=rotation_method,
+                    load_thresh=loading_threshold,
+                    comm_thresh=communality_threshold,
+                    seed=42,
+                    max_iter=6,
+                )
+                S.df_autofix         = df_fixed
+                S.fix_log            = fix_log_df
+                S.autofix_efa_result = dict(efa=final_fa, diag=final_diag, iter_log=iter_log_df)
+            n_remaining = int(final_diag["RecommendDrop"].sum())
+            if n_remaining == 0:
+                st.success(f"✓ All variables fixed. All {len(df_fixed.columns)} variables pass EFA diagnostics.")
+            else:
+                st.warning(f"⚠️ {n_remaining} variable(s) still flagged after 6 iterations — these have structural issues that cannot be resolved by data transformation alone. The best-possible fixed dataset is still returned with all variables retained.")
 
     with col_fix2:
         if S.df_autofix is not None:
@@ -1658,6 +1746,37 @@ else:
         mc2.markdown(f'<div class="metric-card"><div class="metric-val" style="color:#6c8dfa;">{n_clean}</div><div class="metric-label">Already Clean</div></div>', unsafe_allow_html=True)
         mc3.markdown(f'<div class="metric-card"><div class="metric-val">{n_total}</div><div class="metric-label">Total Variables Retained</div></div>', unsafe_allow_html=True)
 
+        # ── Iteration progress ───────────────────────────────────────
+        if S.autofix_efa_result is not None and "iter_log" in S.autofix_efa_result:
+            iter_df = S.autofix_efa_result["iter_log"]
+            if len(iter_df) > 0:
+                st.markdown("#### 🔁 Iterative Fix Progress")
+                def _iter_log_html(df):
+                    rows = ""
+                    for _, r in df.iterrows():
+                        flagged = int(r["FlaggedVars"])
+                        flag_color = "color:#34d399;" if flagged == 0 else ("color:#fbbf24;" if flagged <= 2 else "color:#f87171;")
+                        rows += (
+                            f"<tr>"
+                            f"<td style='padding:6px 10px;border-bottom:1px solid #1e2540;color:#e2e8f0;text-align:center;'>Pass {int(r['Iteration'])}</td>"
+                            f"<td style='padding:6px 10px;border-bottom:1px solid #1e2540;{flag_color}font-weight:700;text-align:center;'>{flagged}</td>"
+                            f"<td style='padding:6px 10px;border-bottom:1px solid #1e2540;color:#6c8dfa;text-align:center;'>{r['AvgCommunality']}</td>"
+                            f"<td style='padding:6px 10px;border-bottom:1px solid #1e2540;color:#a78bfa;font-size:.82rem;'>{r['FixedThisPass']}</td>"
+                            f"</tr>"
+                        )
+                    return f"""
+<div style="overflow-x:auto;">
+<table style="width:100%;border-collapse:collapse;font-size:.83rem;font-family:Inter,sans-serif;">
+<thead><tr style="background:#1e2540;">
+  <th style="padding:8px 10px;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;text-align:center;">Pass</th>
+  <th style="padding:8px 10px;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;text-align:center;">Still Flagged</th>
+  <th style="padding:8px 10px;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;text-align:center;">Avg Communality</th>
+  <th style="padding:8px 10px;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Variables Worked On</th>
+</tr></thead>
+<tbody>{rows}</tbody>
+</table></div>"""
+                st.markdown(_iter_log_html(iter_df), unsafe_allow_html=True)
+
         st.markdown("#### 🔧 Fix Log — Variable-by-Variable")
 
         def _fix_log_html(df):
@@ -1670,11 +1789,15 @@ else:
                 else:
                     s_color = "color:#64748b;"
                     s_icon  = "✓"
+                final_issue = str(r.get("FinalIssue", "—"))
+                issue_color = "color:#34d399;" if final_issue in ("OK", "—") else "color:#fbbf24;"
                 rows += (
                     f"<tr>"
                     f"<td style='padding:7px 10px;border-bottom:1px solid #1e2540;color:#e2e8f0;font-weight:600;'>{r['Variable']}</td>"
-                    f"<td style='padding:7px 10px;border-bottom:1px solid #1e2540;color:#f87171;font-size:.82rem;'>{r['DataIssues']}</td>"
-                    f"<td style='padding:7px 10px;border-bottom:1px solid #1e2540;color:#a78bfa;font-size:.82rem;'>{r['FixApplied']}</td>"
+                    f"<td style='padding:7px 10px;border-bottom:1px solid #1e2540;color:#f87171;font-size:.82rem;'>{r['OriginalDataIssues']}</td>"
+                    f"<td style='padding:7px 10px;border-bottom:1px solid #1e2540;color:#a78bfa;font-size:.82rem;'>{r['FixesApplied']}</td>"
+                    f"<td style='padding:7px 10px;border-bottom:1px solid #1e2540;{issue_color}font-size:.82rem;'>{final_issue}</td>"
+                    f"<td style='padding:7px 10px;border-bottom:1px solid #1e2540;color:#6c8dfa;text-align:center;'>{r['FinalCommunality']}</td>"
                     f"<td style='padding:7px 10px;border-bottom:1px solid #1e2540;{s_color}'>{s_icon} {status.replace('✔ ','').replace('✓ ','')}</td>"
                     f"</tr>"
                 )
@@ -1684,8 +1807,10 @@ else:
 <thead>
 <tr style="background:#1e2540;">
   <th style="padding:8px 10px;text-align:left;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Variable</th>
-  <th style="padding:8px 10px;text-align:left;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Issues Detected</th>
-  <th style="padding:8px 10px;text-align:left;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Fix Applied</th>
+  <th style="padding:8px 10px;text-align:left;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Raw Data Issues</th>
+  <th style="padding:8px 10px;text-align:left;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Fixes Applied</th>
+  <th style="padding:8px 10px;text-align:left;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Final EFA Issue</th>
+  <th style="padding:8px 10px;text-align:center;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Final Communality</th>
   <th style="padding:8px 10px;text-align:left;color:#6c8dfa;font-size:.75rem;text-transform:uppercase;letter-spacing:1px;">Status</th>
 </tr>
 </thead>
