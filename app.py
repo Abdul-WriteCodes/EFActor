@@ -230,26 +230,26 @@ PLANS = [
     {
         "name": "Starter", "price": "$9", "credits": "10 credits",
         "period": "one-time", "color": "#34d399", "highlight": False,
-        "features": ["Unlimited EFA & CFA runs","10 dataset exports",
-                     "Up to 1,000 rows per export","Synthetic data generation",
+        "features": ["Unlimited EFA & CFA runs","Dataset exports",
+                     "Synthetic data generation",
                      "Word analysis report (.docx)","Access key via email"],
         "link": "https://your-payment-link-starter",
     },
     {
-        "name": "Researcher", "price": "$19", "credits": "30 credits",
+        "name": "Standard", "price": "$19", "credits": "30 credits",
         "period": "one-time", "color": "#6c8dfa", "highlight": True,
-        "features": ["Unlimited EFA & CFA runs","30 dataset exports",
-                     "Up to 5,000 rows per export","Synthetic data generation",
-                     "Word analysis report (.docx)","ZIP bundle export","Access key via email"],
+        "features": ["Unlimited EFA & CFA runs","Dataset exports",
+                     "Synthetic data generation",
+                     "Word analysis report (.docx)","Access key via email"],
         "link": "https://your-payment-link-researcher",
     },
     {
         "name": "Pro", "price": "$49", "credits": "100 credits",
         "period": "one-time", "color": "#a78bfa", "highlight": False,
-        "features": ["Unlimited EFA & CFA runs","100 dataset exports",
+        "features": ["Unlimited EFA & CFA runs","10Dtaset exports",
                      "Unlimited rows per export","Synthetic data generation",
-                     "Word analysis report (.docx)","ZIP bundle export",
-                     "Priority support","Access key via email"],
+                     "Word analysis report (.docx)",
+                     "Access key via email"],
         "link": "https://your-payment-link-pro",
     },
 ]
@@ -419,7 +419,7 @@ def render_landing():
               <div>{feats}</div>
             </div>
             """, unsafe_allow_html=True)
-            st.link_button(f"Get {plan['name']} →", url=plan["link"], use_container_width=True)
+            st.link_button(f"Get {plan['name']} →", url=plan["link"], width='stretch')
 
     # Credit cost table
     st.markdown("""
@@ -470,7 +470,7 @@ def render_landing():
     with c:
         key_input = st.text_input("Access Key", placeholder="EFA-XXXX-XXXX-XXXX",
                                    label_visibility="collapsed", key="landing_key_input")
-        enter_btn = st.button("◈ Enter EFActor", type="primary", use_container_width=True)
+        enter_btn = st.button("🔬 Enter EFActor", type="primary", width='stretch')
         if enter_btn:
             if not key_input.strip():
                 st.error("Please enter your access key.")
