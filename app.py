@@ -233,7 +233,7 @@ PLANS = [
         "features": ["Unlimited EFA & CFA runs","Dataset exports",
                      "Synthetic data generation",
                      "Word analysis report (.docx)","Access key via email"],
-        "link": "https://your-payment-link-starter",
+        "link": "https://flutterwave.com/pay/blhpfnlv6qj0",
     },
     {
         "name": "Standard", "price": "$19", "credits": "30 credits",
@@ -241,7 +241,7 @@ PLANS = [
         "features": ["Unlimited EFA & CFA runs","Dataset exports",
                      "Synthetic data generation",
                      "Word analysis report (.docx)","Access key via email"],
-        "link": "https://your-payment-link-researcher",
+        "link": "https://flutterwave.com/pay/rdzxbnicgu4f",
     },
     {
         "name": "Pro", "price": "$49", "credits": "100 credits",
@@ -250,7 +250,7 @@ PLANS = [
                      "Unlimited rows per export","Synthetic data generation",
                      "Word analysis report (.docx)",
                      "Access key via email"],
-        "link": "https://your-payment-link-pro",
+        "link": "https://flutterwave.com/pay/skqi0vxinkrx",
     },
 ]
 
