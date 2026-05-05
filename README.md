@@ -11,28 +11,29 @@ EFActor is a web-based AI-powered psychometric analysis platform designed for re
 
 ## Problem
 Researchers face major friction when running factor analysis:
-- High learning curve (R, SPSS syntax, SEM tools)
-- Poor diagnostics for item-level issues
-- Manual iteration (drop, rerun, repeat)
-- No built-in data repair mechanisms
-- Synthetic data generation is non-trivial
+- ⚠️ High learning curve (R, SPSS syntax, SEM tools)
+- ⚠️ Poor diagnostics for item-level issues
+- ⚠️ Manual iteration (drop, rerun, repeat)
+- 🚫 No built-in data repair mechanisms
+
 
 ## The Solution
-EFActor provides a fully integrated psychometric pipeline:
-- Automated EFA + CFA workflow
-- Built-in diagnostics + issue detection
-- Intelligent auto-fix engine for problematic variables
-- Synthetic dataset generation
+EFActor provides a fully integrated psychometric analysis pipeline for users to:
+- ✅️ Run and assess dataset fit for EFA
+- 🔍 Run EFA analysis and diagnose EFA issues in a dataset (weak loaders, and cross loaders)
+- ⚙️ Auto-fix engine for problematic variables
+- ✅️ Model Confirmatory Factor Analysis
+- 📥 Generate and export clean dataset generation
 - Export-ready Word reports (.docx)
   
 ---
 
 # Core Features
 1. EFA (Exploratory Factor Analysis)
-   - KMO & Bartlett’s Test
-   - Eigenvalues + Scree Plot
-   - Factor Loadings (Varimax rotation)
-   - Communalities & Variance Explained
+   - 📈 KMO & Bartlett’s Test
+   - 📈 Eigenvalues + Scree Plot
+   - 📐 Factor Loadings (Varimax rotation)
+   - 📊 Communalities & Variance Explained
 
 2. Smart Diagnostics that detect and flag:
    - Low communality
@@ -54,12 +55,6 @@ EFActor provides a fully integrated psychometric pipeline:
    - Correlation-based generation
    - Validation against original dataset
 
-6. Interactive Visualizations
-   - Scree plots
-   - Factor loading heatmaps
-   - Communality charts
-   - Correlation matrices
-   - Synthetic vs original comparisons
      
 # Workflow
 1. 👉 Visit: [EFActor](https://efactor.streamlit.app/)
