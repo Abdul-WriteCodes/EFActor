@@ -55,12 +55,6 @@ EFActor provides a fully integrated psychometric analysis pipeline for users to:
    - Correlation-based generation
    - Validation against original dataset
 
-6. Interactive Visualizations
-   - Scree plots
-   - Factor loading heatmaps
-   - Communality charts
-   - Correlation matrices
-   - Synthetic vs original comparisons
      
 # Workflow
 1. 👉 Visit: [EFActor](https://efactor.streamlit.app/)
